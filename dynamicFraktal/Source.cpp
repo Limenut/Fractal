@@ -24,6 +24,7 @@ const unsigned THREAD_COUNT = 8;
 const int TILE_SIZE = 512;
 
 std::vector<SDL_Rect>tiles;
+std::vector<SDL_Surface*>surfaces;
 std::vector<std::thread>threads;
 
 SDL_Color color_table[256 * 6];
@@ -230,6 +231,10 @@ void initTiles()
 			rect.w = ((SCREEN_WIDTH - x) < TILE_SIZE ? SCREEN_WIDTH - x : TILE_SIZE);
 			rect.h = ((SCREEN_HEIGHT - y) < TILE_SIZE ? SCREEN_HEIGHT - y : TILE_SIZE);
 			tiles.push_back(rect);
+
+			SDL_Surface *surf = SDL_CreateRGBSurface(0, rect.w, rect.h, 32,
+				0,0,0,0);
+			surfaces.push_back(surf);
 		}
 	}
 }
@@ -330,10 +335,17 @@ void wholeRender()
 	}
 }
 
-void renderPart(SDL_Rect part)
+/*void renderPart(SDL_Rect part, SDL_Surface *surface)
 {
-	//SDL_Texture* texture;
-	//SDL_SetRenderTarget(gRenderer, texture);
+	//SDL_SetRenderDrawColor(gRenderer, 0x00, 0x00, 0x00, 0xFF);
+	//SDL_RenderClear(gRenderer);
+
+	SDL_LockSurface(surface);
+
+	SDL_FillRect(surface, NULL, 0);
+
+	Uint32 *pixels = (Uint32 *)surface->pixels;
+
 	for (int y = part.y; y < part.h; ++y)
 	{
 		for (int x = part.x; x < part.w; ++x)
@@ -344,11 +356,47 @@ void renderPart(SDL_Rect part)
 
 				SDL_Color color = color_table[hue];
 
-				SDL_SetRenderDrawColor(gRenderer, color.r, color.g, color.b, 0xFF);
-				SDL_RenderDrawPoint(gRenderer, x, y);
+				//SDL_SetRenderDrawColor(gRenderer, color.r, color.g, color.b, 0xFF);
+				//SDL_RenderDrawPoint(gRenderer, x, y);
+
+				//int locX = x - part.x;
+				//int locY = y - part.y;
+
+				//Set the pixel
+				pixels[(y * surface->w) + x] = (color.r * 256 * 256 + color.g * 256 + color.b);
+				
 			}
 		}
 	}
+	SDL_UnlockSurface(surface);
+}*/
+
+void renderPart(SDL_Rect part, SDL_Surface *surface)
+{
+	SDL_LockSurface(surface);
+
+	SDL_FillRect(surface, NULL, 0);
+
+	Uint32 *pixels = (Uint32 *)surface->pixels;
+
+	for (int y = 0; y < part.h; ++y)
+	{
+		for (int x = 0; x < part.w; ++x)
+		{
+			if (pixelBuffer[y + part.y][x + part.x] >= 0)
+			{
+				int hue = (pixelBuffer[y + part.y][x + part.x] * 12) % (256 * 6);
+
+				SDL_Color color = color_table[hue];
+
+				//Set the pixel
+				pixels[(y * surface->w) + x] = (color.r * 256 * 256 + color.g * 256 + color.b);
+
+			}
+		}
+	}
+	
+	SDL_UnlockSurface(surface);
 }
 
 void drawDotRain(unsigned x, unsigned y, unsigned i, unsigned i_max)
@@ -441,7 +489,7 @@ int main()
 	memset(pixelBuffer, -1, sizeof(pixelBuffer));
 	while (!quit)
 	{
-		handleEvents(&offset, &zoom, &MaxIterations, &K, &update, &quit);
+		
 		if (update)
 		{
 			memset(pixelBuffer, -1, sizeof(pixelBuffer));
@@ -461,6 +509,8 @@ int main()
 			iTile++;
 		}
 
+		handleEvents(&offset, &zoom, &MaxIterations, &K, &update, &quit);
+
 		for (auto &t : threads)
 		{
 			if (t.joinable())
@@ -469,28 +519,38 @@ int main()
 			}
 		}
 
+		//SDL_SetRenderDrawColor(gRenderer, 0x00, 0x00, 0x00, 0xFF);
+		//SDL_RenderClear(gRenderer);
 
-		//Clear screen
-		/*SDL_SetRenderDrawColor(gRenderer, 0x00, 0x00, 0x00, 0xFF);
-		SDL_RenderClear(gRenderer);
+		//std::thread render(wholeRender);
+		//render.join();
 
 		for (unsigned i = 0; i < tiles.size(); i++)
 		{
-			threads[i] = std::thread(renderPart, tiles[i]);	
+			threads[i] = std::thread(renderPart, tiles[i], surfaces[i]);
 		}
 
 		for (auto &t : threads)
 		{
-			if (t.joinable()) t.join();
-		}*/
+			if (t.joinable())
+			{
+				t.join();
+			}
+		}
 
-		std::thread render(wholeRender);
-		render.join();
+		SDL_Surface *screen = SDL_GetWindowSurface(gWindow);
+		for (unsigned i = 0; i < tiles.size(); i++)
+		{
+			SDL_BlitSurface(surfaces[i], NULL, screen, &tiles[i]);
+		}
+		SDL_UpdateWindowSurface(gWindow);
+		SDL_FreeSurface(screen);
 
-		
 		text.printText(offset, zoom, MaxIterations);
+
 		//Update screen
-		SDL_RenderPresent(gRenderer);
+		//SDL_RenderPresent(gRenderer);
+		
 
 		//MinIterations += interval;
 		MaxIterations += interval;
