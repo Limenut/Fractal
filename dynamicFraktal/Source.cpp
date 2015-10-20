@@ -2,11 +2,10 @@
 #include <thread>
 #include <mutex>
 #include <iostream>
-#include <string>
-#include <sstream>
 #include <vector>
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_ttf.h>
+#include "Complex.h"
+#include "textOverlay.h"
+
 #pragma comment (lib, "SDL2.lib")
 #pragma comment (lib, "SDL2_ttf.lib")
 
@@ -27,111 +26,13 @@ std::vector<SDL_Rect>tiles;
 std::vector<SDL_Surface*>surfaces;
 std::vector<std::thread>threads;
 
-SDL_Color color_table[256 * 6];
+Uint32 color_table[256 * 6];
 const Uint8* state = SDL_GetKeyboardState(NULL);
-
-int pixelBuffer[SCREEN_HEIGHT][SCREEN_WIDTH];
-
-
-class complex
-{
-public:
-	double re;
-	double im;
-};
-
-class coordinates
-{
-public:
-	complex max;
-	complex min;
-	complex factor;
-};
-
-class textOverlay
-{
-public:
-	textOverlay();
-	SDL_Texture *tx[4];
-	SDL_Rect rc[4];
-	std::string str[4];
-	SDL_Color color;
-	TTF_Font *font;
-
-	void initText();
-	void printText(complex offset, double zoom, unsigned MaxIterations);
-};
-
-textOverlay::textOverlay() { initText(); }
-
-void textOverlay::initText()
-{
-	gFont = TTF_OpenFont("DigitalDream.ttf", 14);
-
-	for (int i = 0; i < 4; i++) { str[i] = " "; }
-	color = { 0xFF, 0xFF, 0xFF };
-	font = gFont;
-	for (int i = 0; i < 4; i++)
-	{
-		rc[i].x = 0, rc[i].y = i * 20;
-	}
-
-	//varaa surface
-	SDL_Surface *surf = NULL;
-
-	for (int i = 0; i < 4; i++)
-	{
-		//laita teksti surffille ja talleta se tekstuuriin
-		surf = TTF_RenderText_Solid(font, str[0].c_str(), color);
-		tx[i] = SDL_CreateTextureFromSurface(gRenderer, surf);
-
-		//surface pois
-		SDL_FreeSurface(surf);
-
-		//tekstuurin koko tallennetaan rektankkeliin
-		SDL_QueryTexture(tx[i], NULL, NULL, &rc[i].w, &rc[i].h);
-	}
-}
-
-void textOverlay::printText(complex offset, double zoom, unsigned MaxIterations)
-{
-	std::stringstream ss;
-	ss.str("");
-	ss << "x: " << offset.re;
-	str[0] = ss.str();
-	ss.str("");
-	ss << "y: " << offset.im;
-	str[1] = ss.str();
-	ss.str("");
-	ss << "zoom: " << zoom;
-	str[2] = ss.str();
-	ss.str("");
-	ss << "max iterations: " << MaxIterations;
-	str[3] = ss.str();
-
-	SDL_Surface *surf = NULL;
-
-	for (int i = 0; i < 4; i++)
-	{
-		surf = TTF_RenderText_Solid(font, str[i].c_str(), color);
-		tx[i] = SDL_CreateTextureFromSurface(gRenderer, surf);
-
-		SDL_FreeSurface(surf);
-
-		SDL_QueryTexture(tx[i], NULL, NULL, &rc[i].w, &rc[i].h);
-
-		SDL_RenderCopy(gRenderer, tx[i], NULL, &rc[i]);
-	}
-}
 
 const complex MandelMin = {-2.0, -1.5};
 const complex JuliaMin = { -1.5, -1.5 };
 const complex PixelFactor = { 3.0 / (SCREEN_WIDTH - 1), 3.0 / (SCREEN_HEIGHT - 1) };
 const double centerOFF = 0.5; //distance from origin to center of screen
-
-
-void drawDotRain(unsigned x, unsigned y, unsigned i, unsigned i_max);
-void drawDotCyclic(unsigned x, unsigned y, unsigned i);
 
 bool init()
 {
@@ -206,17 +107,17 @@ void initColorTable()
 	int c;
 
 	for (c = 0; c < 256; c++, i++)
-		color_table[i] = { 255, Uint8(c), 0 }; //red-yellow
+		color_table[i] = 0xFF0000 + 0x100*c; //red-yellow
 	for (c = 0; c < 256; c++, i++)
-		color_table[i] = { Uint8(255 - c), 255, 0 }; //yellow-green
+		color_table[i] = 0xFF0000 - 0x10000*c + 0xFF00; //yellow-green
 	for (c = 0; c < 256; c++, i++)
-		color_table[i] = { 0, 255, Uint8(c) }; //green-cyan
+		color_table[i] = 0xFF00 + c; //green-cyan
 	for (c = 0; c < 256; c++, i++)
-		color_table[i] = { 0, Uint8(255 - c), 255 }; //cyan-blue
+		color_table[i] = 0xFF00 - 0x100*c + 0xFF; //cyan-blue
 	for (c = 0; c < 256; c++, i++)
-		color_table[i] = { Uint8(c), 0, 255 }; //blue-magenta
+		color_table[i] = 0xFF + 0x10000*c; //blue-magenta
 	for (c = 0; c < 256; c++, i++)
-		color_table[i] = { 255, 0, Uint8(255 - c) }; //magenta-red
+		color_table[i] = 0xFF - c + 0xFF0000; //magenta-red
 }
 
 void initTiles()
@@ -234,19 +135,33 @@ void initTiles()
 
 			SDL_Surface *surf = SDL_CreateRGBSurface(0, rect.w, rect.h, 32,
 				0,0,0,0);
+			SDL_SetSurfaceRLE(surf, true); //optimize surfaces
 			surfaces.push_back(surf);
 		}
 	}
 }
 
-void renderManPart(unsigned MinIterations, unsigned MaxIterations, double zoom, complex offset, SDL_Rect part)
+void renderManPart(unsigned MinIterations, unsigned MaxIterations, double zoom, complex offset, unsigned iTile)
 {
-	for (int y = part.y; y < part.y + part.h; ++y)
+	SDL_Rect tile = tiles[iTile];
+	SDL_Surface *surf = surfaces[iTile];
+
+	SDL_LockSurface(surf);
+
+	SDL_FillRect(surf, NULL, 0);
+	Uint32 *pixels = (Uint32 *)surf->pixels;
+
+	for (int y = tile.y; y < tile.y + tile.h; ++y)
 	{
-		complex c;
-		c.im = (MandelMin.im + y * PixelFactor.im) * zoom + offset.im;
-		for (int x = part.x; x < part.x + part.w; ++x)
+		for (int x = tile.x; x < tile.x + tile.w; ++x)
 		{
+			int locX = x - tile.x;
+			int locY = y - tile.y;
+
+			if (pixels[(locY * surf->w) + locX] & 0x00FFFFFF) continue; //if the pixel is already colored
+
+			complex c;
+			c.im = (MandelMin.im + y * PixelFactor.im) * zoom + offset.im;
 			c.re = (MandelMin.re + centerOFF + x * PixelFactor.re) * zoom + offset.re - centerOFF;
 
 			//cardioid-check
@@ -279,19 +194,37 @@ void renderManPart(unsigned MinIterations, unsigned MaxIterations, double zoom, 
 				Z.re = Z_2.re - Z_2.im + c.re;
 			}
 
-			if (!isInside) pixelBuffer[y][x] = iterations;
+			if (!isInside) 
+			{
+				int hue = (iterations * 12) % (256 * 6);
+
+				//SDL_Color color = color_table[hue];
+
+				//Set the pixel
+				//pixels[(locY * surf->w) + locX] = (color.r * 0x10000 + color.g * 0x100 + color.b);
+			}
 		}
 	}
+	SDL_UnlockSurface(surf);
 }
 
-void renderJulPart(unsigned MinIterations, unsigned MaxIterations, double zoom, complex offset, complex K, SDL_Rect part)
+void renderJulPart(unsigned MinIterations, unsigned MaxIterations, double zoom, complex offset, complex K, unsigned iTile)
 {
-	for (int y = part.y; y < part.y + part.h; ++y)
-	{
-		for (int x = part.x; x < part.x + part.w; ++x)
-		{
-			if (pixelBuffer[y][x] >= 0) continue;
+	SDL_Rect tile = tiles[iTile];
+	SDL_Surface *surf = surfaces[iTile];
 
+	SDL_LockSurface(surf);
+
+	Uint32 *pixels = (Uint32 *)surf->pixels;
+
+	for (int y = tile.y; y < tile.y + tile.h; ++y)
+	{
+		for (int x = tile.x; x < tile.x + tile.w; ++x)
+		{
+			int locX = x - tile.x;
+			int locY = y - tile.y;
+
+			if (pixels[(locY * surf->w) + locX] & 0x00FFFFFF) continue; //if the pixel is already colored
 			complex Z;
 			Z.re = (JuliaMin.re + x * PixelFactor.re) * zoom + offset.re;
 			Z.im = (JuliaMin.im + y * PixelFactor.im) * zoom + offset.im;
@@ -312,111 +245,113 @@ void renderJulPart(unsigned MinIterations, unsigned MaxIterations, double zoom, 
 				Z.im = 2 * Z.re*Z.im + K.im;
 				Z.re = Z_2.re - Z_2.im + K.re;
 			}
-			if (!isInside) pixelBuffer[y][x] = iterations;
-		}
-	}
-}
-
-void wholeRender()
-{
-	//Clear screen
-	SDL_SetRenderDrawColor(gRenderer, 0x00, 0x00, 0x00, 0xFF);
-	SDL_RenderClear(gRenderer);
-
-	for (int y = 0; y < SCREEN_HEIGHT; ++y)
-	{
-		for (int x = 0; x < SCREEN_WIDTH; ++x)
-		{
-			if (pixelBuffer[y][x] >= 0)
+			if (!isInside) 
 			{
-				drawDotCyclic(x, y, pixelBuffer[y][x]);
-			}
-		}
-	}
-}
+				int hue = (iterations * 12) % (256 * 6);
 
-/*void renderPart(SDL_Rect part, SDL_Surface *surface)
-{
-	//SDL_SetRenderDrawColor(gRenderer, 0x00, 0x00, 0x00, 0xFF);
-	//SDL_RenderClear(gRenderer);
-
-	SDL_LockSurface(surface);
-
-	SDL_FillRect(surface, NULL, 0);
-
-	Uint32 *pixels = (Uint32 *)surface->pixels;
-
-	for (int y = part.y; y < part.h; ++y)
-	{
-		for (int x = part.x; x < part.w; ++x)
-		{
-			if (pixelBuffer[y][x] >= 0)
-			{
-				int hue = (pixelBuffer[y][x] * 12) % (256 * 6);
-
-				SDL_Color color = color_table[hue];
-
-				//SDL_SetRenderDrawColor(gRenderer, color.r, color.g, color.b, 0xFF);
-				//SDL_RenderDrawPoint(gRenderer, x, y);
-
-				//int locX = x - part.x;
-				//int locY = y - part.y;
+				//SDL_Color color = color_table[hue];
 
 				//Set the pixel
-				pixels[(y * surface->w) + x] = (color.r * 256 * 256 + color.g * 256 + color.b);
-				
+				//pixels[(locY * surf->w) + locX] = (color.r*0x10000 + color.g*0x100 + color.b);
+				//pixels[(locY * surf->w) + locX] = SDL_MapRGB(&windowFormat, color.r, color.g, color.b);
 			}
 		}
 	}
-	SDL_UnlockSurface(surface);
-}*/
+	SDL_UnlockSurface(surf);
+}
 
-void renderPart(SDL_Rect part, SDL_Surface *surface)
+int MandelMath(int x, int y, unsigned MinIterations, unsigned MaxIterations, double zoom, complex offset)
 {
-	SDL_LockSurface(surface);
+	complex c;
+	c.im = (MandelMin.im + y * PixelFactor.im) * zoom + offset.im;
+	c.re = (MandelMin.re + centerOFF + x * PixelFactor.re) * zoom + offset.re - centerOFF;
 
-	SDL_FillRect(surface, NULL, 0);
+	//cardioid-check
+	double cardioid = (c.re - 0.25)*(c.re - 0.25) + c.im*c.im;
+	if (cardioid*(cardioid + (c.re - 0.25)) < 0.25*c.im*c.im)
+		return -1;
 
-	Uint32 *pixels = (Uint32 *)surface->pixels;
+	//first sphere-check
+	if ((c.re + 1.0)*(c.re + 1.0) + c.im*c.im < (1.0 / 16.0))
+		return -1;
 
-	for (int y = 0; y < part.h; ++y)
+	complex Z;
+	Z.re = c.re, Z.im = c.im;
+	unsigned iterations;
+
+	//escape time algorithm
+	for (iterations = MinIterations; iterations < MaxIterations; ++iterations)
 	{
-		for (int x = 0; x < part.w; ++x)
-		{
-			if (pixelBuffer[y + part.y][x + part.x] >= 0)
-			{
-				int hue = (pixelBuffer[y + part.y][x + part.x] * 12) % (256 * 6);
+		complex Z_2;
+		Z_2.re = Z.re*Z.re, Z_2.im = Z.im*Z.im;
 
-				SDL_Color color = color_table[hue];
+		if (Z_2.re + Z_2.im > 4)
+		{
+			return iterations;
+		}
+
+		Z.im = 2 * Z.re*Z.im + c.im;
+		Z.re = Z_2.re - Z_2.im + c.re;
+	}
+	return -1;
+}
+
+int JuliaMath(int x, int y, unsigned MinIterations, unsigned MaxIterations, double zoom, complex offset, complex K)
+{
+	complex Z;
+	Z.re = (JuliaMin.re + x * PixelFactor.re) * zoom + offset.re;
+	Z.im = (JuliaMin.im + y * PixelFactor.im) * zoom + offset.im;
+	unsigned iterations;
+
+	for (iterations = MinIterations; iterations < MaxIterations; ++iterations)
+	{
+		complex Z_2;
+		Z_2.re = Z.re*Z.re, Z_2.im = Z.im*Z.im;
+
+
+		if (Z_2.re + Z_2.im > 4)
+		{
+			return iterations;
+		}
+		Z.im = 2 * Z.re*Z.im + K.im;
+		Z.re = Z_2.re - Z_2.im + K.re;
+	}
+	return -1;
+}
+
+void renderFractalPart(unsigned MinIterations, unsigned MaxIterations, double zoom, complex offset, complex K, unsigned iTile)
+{
+	SDL_Rect tile = tiles[iTile];
+	SDL_Surface *surf = surfaces[iTile];
+
+	SDL_LockSurface(surf);
+
+	Uint32 *pixels = (Uint32 *)surf->pixels;
+
+	for (int y = tile.y; y < tile.y + tile.h; ++y)
+	{
+		for (int x = tile.x; x < tile.x + tile.w; ++x)
+		{
+			int locX = x - tile.x;
+			int locY = y - tile.y;
+
+			if (pixels[(locY * surf->w) + locX] & 0x00FFFFFF) continue; //if the pixel is already colored
+			
+			int iterations = MandelMath(x, y, MinIterations, MaxIterations, zoom, offset);
+
+			if (iterations >= 0)
+			{
+				int hue = (iterations * 12) % (256 * 6);
+
+				//SDL_Color color = color_table[hue];
 
 				//Set the pixel
-				pixels[(y * surface->w) + x] = (color.r * 256 * 256 + color.g * 256 + color.b);
-
+				pixels[(locY * surf->w) + locX] = color_table[hue];
+				//pixels[(locY * surf->w) + locX] = SDL_MapRGB(&windowFormat, color.r, color.g, color.b);
 			}
 		}
 	}
-	
-	SDL_UnlockSurface(surface);
-}
-
-void drawDotRain(unsigned x, unsigned y, unsigned i, unsigned i_max)
-{
-	int hue = (int)(((double)i / (double)i_max) * 256.0 * 6.0 + 0.5);
-
-	SDL_Color color = color_table[hue];
-
-	SDL_SetRenderDrawColor(gRenderer, color.r, color.g, color.b, 0xFF);
-	SDL_RenderDrawPoint(gRenderer, x, y);
-}
-
-void drawDotCyclic(unsigned x, unsigned y, unsigned i)
-{
-	int hue = (i * 12) % (256 * 6);
-
-	SDL_Color color = color_table[hue];
-
-	SDL_SetRenderDrawColor(gRenderer, color.r, color.g, color.b, 0xFF);
-	SDL_RenderDrawPoint(gRenderer, x, y);
+	SDL_UnlockSurface(surf);
 }
 
 void handleEvents(complex *offset, double *zoom, unsigned *MaxIterations, complex *K, bool *update, bool *quit)
@@ -463,6 +398,7 @@ int main()
 	initColorTable();
 	initTiles();
 
+	//init threads
 	for (int i = 0; i < THREAD_COUNT; i++)
 	{
 		threads.push_back(std::thread());
@@ -481,36 +417,41 @@ int main()
 	double zoom = 1;
 
 	textOverlay text;
+	gFont = TTF_OpenFont("DigitalDream.ttf", 14);
+	text.initText(gRenderer, gFont);
 
 	//Main loop flag
 	bool quit = false;
 	bool update = true;
 
-	memset(pixelBuffer, -1, sizeof(pixelBuffer));
 	while (!quit)
 	{
-		
 		if (update)
 		{
-			memset(pixelBuffer, -1, sizeof(pixelBuffer));
-
+			//fill screen with black
+			for (auto &t : surfaces)
+			{
+				SDL_FillRect(t, NULL, 0);
+			}
+			
 			MinIterations = 0;
 			MaxIterations = MinIterations + interval;
 
 			update = false;
 		}
 
-		unsigned iTile = 0;
+		handleEvents(&offset, &zoom, &MaxIterations, &K, &update, &quit);
 
+		//start fractal drawing threads
+		unsigned iTile = 0;
 		for (auto &t : threads)
 		{
 			if (iTile >= tiles.size()) break;
-			t = std::thread(renderManPart, MinIterations, MaxIterations, zoom, offset, tiles[iTile]);
+			t = std::thread(renderFractalPart, MinIterations, MaxIterations, zoom, offset, K, iTile);
 			iTile++;
 		}
 
-		handleEvents(&offset, &zoom, &MaxIterations, &K, &update, &quit);
-
+		//join threads
 		for (auto &t : threads)
 		{
 			if (t.joinable())
@@ -519,38 +460,17 @@ int main()
 			}
 		}
 
-		//SDL_SetRenderDrawColor(gRenderer, 0x00, 0x00, 0x00, 0xFF);
-		//SDL_RenderClear(gRenderer);
-
-		//std::thread render(wholeRender);
-		//render.join();
-
-		for (unsigned i = 0; i < tiles.size(); i++)
-		{
-			threads[i] = std::thread(renderPart, tiles[i], surfaces[i]);
-		}
-
-		for (auto &t : threads)
-		{
-			if (t.joinable())
-			{
-				t.join();
-			}
-		}
-
+		//combine surfaces to one
 		SDL_Surface *screen = SDL_GetWindowSurface(gWindow);
+	
 		for (unsigned i = 0; i < tiles.size(); i++)
 		{
 			SDL_BlitSurface(surfaces[i], NULL, screen, &tiles[i]);
 		}
+		SDL_BlitSurface(text.printText(offset, zoom, MaxIterations), NULL, screen, NULL);
+
 		SDL_UpdateWindowSurface(gWindow);
 		SDL_FreeSurface(screen);
-
-		text.printText(offset, zoom, MaxIterations);
-
-		//Update screen
-		//SDL_RenderPresent(gRenderer);
-		
 
 		//MinIterations += interval;
 		MaxIterations += interval;
