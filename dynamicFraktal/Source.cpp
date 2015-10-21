@@ -2,32 +2,17 @@
 #include <thread>
 #include <mutex>
 #include <iostream>
-#include <vector>
+#include "Globals.h"
 #include "Complex.h"
 #include "textOverlay.h"
+#include "Fractal.h"
 
 #pragma comment (lib, "SDL2.lib")
 #pragma comment (lib, "SDL2_ttf.lib")
 
 #undef main
 
-//global window and renderer
-SDL_Window* gWindow = NULL;
-SDL_Renderer* gRenderer = NULL;
-TTF_Font *gFont = NULL;
 
-const int SCREEN_WIDTH = 1000;
-const int SCREEN_HEIGHT = 1000;
-
-const unsigned THREAD_COUNT = 8;
-const int TILE_SIZE = 512;
-
-std::vector<SDL_Rect>tiles;
-std::vector<SDL_Surface*>surfaces;
-std::vector<std::thread>threads;
-
-Uint32 color_table[256 * 6];
-const Uint8* state = SDL_GetKeyboardState(NULL);
 
 const complex MandelMin = {-2.0, -1.5};
 const complex JuliaMin = { -1.5, -1.5 };
@@ -101,25 +86,27 @@ void close()
 	SDL_Quit();
 }
 
-void initColorTable()
+//for faster coloring, put hues into a table
+void initColorTable(Uint32 *table)
 {
 	int i = 0;
 	int c;
 
 	for (c = 0; c < 256; c++, i++)
-		color_table[i] = 0xFF0000 + 0x100*c; //red-yellow
+		table[i] = 0xFF0000 + 0x100 * c; //red-yellow
 	for (c = 0; c < 256; c++, i++)
-		color_table[i] = 0xFF0000 - 0x10000*c + 0xFF00; //yellow-green
+		table[i] = 0xFF0000 - 0x10000 * c + 0xFF00; //yellow-green
 	for (c = 0; c < 256; c++, i++)
-		color_table[i] = 0xFF00 + c; //green-cyan
+		table[i] = 0xFF00 + c; //green-cyan
 	for (c = 0; c < 256; c++, i++)
-		color_table[i] = 0xFF00 - 0x100*c + 0xFF; //cyan-blue
+		table[i] = 0xFF00 - 0x100 * c + 0xFF; //cyan-blue
 	for (c = 0; c < 256; c++, i++)
-		color_table[i] = 0xFF + 0x10000*c; //blue-magenta
+		table[i] = 0xFF + 0x10000 * c; //blue-magenta
 	for (c = 0; c < 256; c++, i++)
-		color_table[i] = 0xFF - c + 0xFF0000; //magenta-red
+		table[i] = 0xFF - c + 0xFF0000; //magenta-red
 }
 
+//divide the window into rendering tiles
 void initTiles()
 {
 	for (int y = 0; y < SCREEN_HEIGHT; y += TILE_SIZE)
@@ -141,125 +128,42 @@ void initTiles()
 	}
 }
 
-void renderManPart(unsigned MinIterations, unsigned MaxIterations, double zoom, complex offset, unsigned iTile)
+void handleEvents(complex *offset, double *zoom, unsigned *MaxIterations, complex *K, bool *update, bool *quit)
 {
-	SDL_Rect tile = tiles[iTile];
-	SDL_Surface *surf = surfaces[iTile];
+	//Event handler
+	SDL_Event e;
 
-	SDL_LockSurface(surf);
-
-	SDL_FillRect(surf, NULL, 0);
-	Uint32 *pixels = (Uint32 *)surf->pixels;
-
-	for (int y = tile.y; y < tile.y + tile.h; ++y)
+	//Handle events on queue
+	while (SDL_PollEvent(&e) != 0)
 	{
-		for (int x = tile.x; x < tile.x + tile.w; ++x)
+		//User requests quit
+		if (e.type == SDL_QUIT)
 		{
-			int locX = x - tile.x;
-			int locY = y - tile.y;
-
-			if (pixels[(locY * surf->w) + locX] & 0x00FFFFFF) continue; //if the pixel is already colored
-
-			complex c;
-			c.im = (MandelMin.im + y * PixelFactor.im) * zoom + offset.im;
-			c.re = (MandelMin.re + centerOFF + x * PixelFactor.re) * zoom + offset.re - centerOFF;
-
-			//cardioid-check
-			double cardioid = (c.re - 0.25)*(c.re - 0.25) + c.im*c.im;
-			if (cardioid*(cardioid + (c.re - 0.25)) < 0.25*c.im*c.im)
-				continue;
-
-			//first sphere-check
-			if ((c.re + 1.0)*(c.re + 1.0) + c.im*c.im < (1.0 / 16.0))
-				continue;
-
-			complex Z;
-			Z.re = c.re, Z.im = c.im;
-			bool isInside = true;
-			unsigned iterations;
-
-			//escape time algorithm
-			for (iterations = MinIterations; iterations < MaxIterations; ++iterations)
-			{
-				complex Z_2;
-				Z_2.re = Z.re*Z.re, Z_2.im = Z.im*Z.im;
-
-				if (Z_2.re + Z_2.im > 4)
-				{
-					isInside = false;
-					break;
-				}
-
-				Z.im = 2 * Z.re*Z.im + c.im;
-				Z.re = Z_2.re - Z_2.im + c.re;
-			}
-
-			if (!isInside) 
-			{
-				int hue = (iterations * 12) % (256 * 6);
-
-				//SDL_Color color = color_table[hue];
-
-				//Set the pixel
-				//pixels[(locY * surf->w) + locX] = (color.r * 0x10000 + color.g * 0x100 + color.b);
-			}
+			*quit = true;
 		}
 	}
-	SDL_UnlockSurface(surf);
+
+	*update = false;
+	if (state[SDL_SCANCODE_KP_MINUS]) { if (*MaxIterations > 0) { (*MaxIterations) -= 10; *update = true; } }
+	else if (state[SDL_SCANCODE_KP_PLUS]) { (*MaxIterations) += 10; *update = true; }
+
+	if (state[SDL_SCANCODE_DOWN]) { *zoom *= 1.2; *update = true; }
+	else if (state[SDL_SCANCODE_UP]) { *zoom *= 0.9; *update = true; }
+
+	if (state[SDL_SCANCODE_KP_8]) { offset->im -= 0.1*(*zoom); *update = true; }
+	else if (state[SDL_SCANCODE_KP_2]) { offset->im += 0.1*(*zoom); *update = true; }
+
+	if (state[SDL_SCANCODE_KP_4]) { offset->re -= 0.1*(*zoom); *update = true; }
+	else if (state[SDL_SCANCODE_KP_6]) { offset->re += 0.1*(*zoom); *update = true; }
+
+	if (state[SDL_SCANCODE_KP_7]) { K->re += 0.01; *update = true; }
+	else if (state[SDL_SCANCODE_KP_1]) { K->re -= 0.01; *update = true; }
+
+	if (state[SDL_SCANCODE_KP_9]) { K->im += 0.01;  *update = true; }
+	else if (state[SDL_SCANCODE_KP_3]) { K->im -= 0.01;  *update = true; }
 }
 
-void renderJulPart(unsigned MinIterations, unsigned MaxIterations, double zoom, complex offset, complex K, unsigned iTile)
-{
-	SDL_Rect tile = tiles[iTile];
-	SDL_Surface *surf = surfaces[iTile];
-
-	SDL_LockSurface(surf);
-
-	Uint32 *pixels = (Uint32 *)surf->pixels;
-
-	for (int y = tile.y; y < tile.y + tile.h; ++y)
-	{
-		for (int x = tile.x; x < tile.x + tile.w; ++x)
-		{
-			int locX = x - tile.x;
-			int locY = y - tile.y;
-
-			if (pixels[(locY * surf->w) + locX] & 0x00FFFFFF) continue; //if the pixel is already colored
-			complex Z;
-			Z.re = (JuliaMin.re + x * PixelFactor.re) * zoom + offset.re;
-			Z.im = (JuliaMin.im + y * PixelFactor.im) * zoom + offset.im;
-			bool isInside = true;
-			unsigned iterations;
-
-			for (iterations = MinIterations; iterations < MaxIterations; ++iterations)
-			{
-				complex Z_2;
-				Z_2.re = Z.re*Z.re, Z_2.im = Z.im*Z.im;
-
-				
-				if (Z_2.re + Z_2.im > 4)
-				{
-					isInside = false;
-					break;
-				}
-				Z.im = 2 * Z.re*Z.im + K.im;
-				Z.re = Z_2.re - Z_2.im + K.re;
-			}
-			if (!isInside) 
-			{
-				int hue = (iterations * 12) % (256 * 6);
-
-				//SDL_Color color = color_table[hue];
-
-				//Set the pixel
-				//pixels[(locY * surf->w) + locX] = (color.r*0x10000 + color.g*0x100 + color.b);
-				//pixels[(locY * surf->w) + locX] = SDL_MapRGB(&windowFormat, color.r, color.g, color.b);
-			}
-		}
-	}
-	SDL_UnlockSurface(surf);
-}
-
+//following functions not in use right now
 int MandelMath(int x, int y, unsigned MinIterations, unsigned MaxIterations, double zoom, complex offset)
 {
 	complex c;
@@ -354,40 +258,6 @@ void renderFractalPart(unsigned MinIterations, unsigned MaxIterations, double zo
 	SDL_UnlockSurface(surf);
 }
 
-void handleEvents(complex *offset, double *zoom, unsigned *MaxIterations, complex *K, bool *update, bool *quit)
-{
-	//Event handler
-	SDL_Event e;
-
-	//Handle events on queue
-	while (SDL_PollEvent(&e) != 0)
-	{
-		//User requests quit
-		if (e.type == SDL_QUIT)
-		{
-			*quit = true;
-		}
-	}
-
-	*update = false;
-	if (state[SDL_SCANCODE_KP_MINUS]) { if (*MaxIterations > 0) { (*MaxIterations) -= 10; *update = true; } }
-	else if (state[SDL_SCANCODE_KP_PLUS]) { (*MaxIterations) += 10; *update = true; }
-
-	if (state[SDL_SCANCODE_DOWN]) { *zoom *= 1.2; *update = true; }
-	else if (state[SDL_SCANCODE_UP]) { *zoom *= 0.9; *update = true; }
-
-	if (state[SDL_SCANCODE_KP_8]) { offset->im -= 0.1*(*zoom); *update = true; }
-	else if (state[SDL_SCANCODE_KP_2]) { offset->im += 0.1*(*zoom); *update = true; }
-
-	if (state[SDL_SCANCODE_KP_4]) { offset->re -= 0.1*(*zoom); *update = true; }
-	else if (state[SDL_SCANCODE_KP_6]) { offset->re += 0.1*(*zoom); *update = true; }
-
-	if (state[SDL_SCANCODE_KP_7]) { K->re += 0.01; *update = true; }
-	else if (state[SDL_SCANCODE_KP_1]) {K->re -= 0.01; *update = true; }
-
-	if (state[SDL_SCANCODE_KP_9]) {K->im += 0.01;  *update = true; }
-	else if (state[SDL_SCANCODE_KP_3]) { K->im -= 0.01;  *update = true; }
-}
 
 int main()
 {
@@ -395,7 +265,7 @@ int main()
 	printf("Initializing SDL... ");
 	if (init()) printf("success\n");
 
-	initColorTable();
+	initColorTable(color_table);
 	initTiles();
 
 	//init threads
@@ -416,11 +286,16 @@ int main()
 	unsigned MaxIterations = MinIterations + interval;
 	double zoom = 1;
 
+	MandelRenderer Mandel;
+	Mandel.update(zoom ,offset);
+	JuliaRenderer Julia;
+	Julia.update(zoom, offset, K);
+
 	textOverlay text;
 	gFont = TTF_OpenFont("DigitalDream.ttf", 14);
 	text.initText(gRenderer, gFont);
 
-	//Main loop flag
+	//Main loop flags
 	bool quit = false;
 	bool update = true;
 
@@ -434,22 +309,30 @@ int main()
 				SDL_FillRect(t, NULL, 0);
 			}
 			
-			MinIterations = 0;
+			//start drawing from beginning
+			//MinIterations = 0;
 			MaxIterations = MinIterations + interval;
+
+			Mandel.update(zoom, offset);
+			//Julia.update(zoom, offset, K);
 
 			update = false;
 		}
 
-		handleEvents(&offset, &zoom, &MaxIterations, &K, &update, &quit);
+		
 
 		//start fractal drawing threads
 		unsigned iTile = 0;
 		for (auto &t : threads)
 		{
 			if (iTile >= tiles.size()) break;
-			t = std::thread(renderFractalPart, MinIterations, MaxIterations, zoom, offset, K, iTile);
+			//t = std::thread(renderFractalPart, MinIterations, MaxIterations, zoom, offset, K, iTile);
+			//t = std::thread(&FractalRenderer::render, &Julia, iTile, MaxIterations);
+			t = std::thread(&FractalRenderer::render, &Mandel, iTile, MaxIterations);
 			iTile++;
 		}
+
+		handleEvents(&offset, &zoom, &MaxIterations, &K, &update, &quit);
 
 		//join threads
 		for (auto &t : threads)
@@ -472,8 +355,7 @@ int main()
 		SDL_UpdateWindowSurface(gWindow);
 		SDL_FreeSurface(screen);
 
-		//MinIterations += interval;
-		MaxIterations += interval;
+		MaxIterations += interval; //render more iterations next time
 	}
 	close();
 }

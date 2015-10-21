@@ -1,70 +1,105 @@
 #pragma once
 
+#include "Globals.h"
 #include "Complex.h"
 #include <SDL2/SDL.h>
-
-Uint32 color_table[256];
+#include <iostream>
 
 class FractalRenderer
 {
 protected:
 	complex minVal;
 	complex factorVal;
-	int math(int x, int y);
-
-public:
-	unsigned MinIterations;
-	unsigned MaxIterations;
+	virtual int math(int x, int y, unsigned maxIterations) = 0;
 	double zoom;
 	complex offset;
-	SDL_Rect tile;
-	SDL_Surface* surface;
-	void render();
+
+public:
+	void render(unsigned iTile, unsigned maxIterations);
+	
 };
 
-class MandelRenderer : FractalRenderer
+class MandelRenderer : public FractalRenderer
 {
-	int math(int x, int y);
-	int centerOff;
+public:
+	MandelRenderer();
+	int math(int x, int y, unsigned maxIterations);
+	double centerOff;
+	void update(double _zoom, complex _offset);
 };
 
-class JuliaRenderer : FractalRenderer
+class JuliaRenderer : public FractalRenderer
 {
-	int math(int x, int y);
+public:
+	JuliaRenderer();
+	int math(int x, int y, unsigned maxIterations);
 	complex K;
+	void update(double _zoom, complex _offset, complex _K);
 };
 
-void FractalRenderer::render()
+JuliaRenderer::JuliaRenderer()
 {
+	minVal = { -1.5, -1.5 };
+	factorVal = { 3.0 / (SCREEN_WIDTH - 1), 3.0 / (SCREEN_HEIGHT - 1) };
+	zoom = 1;
+	offset = {0,0};
+}
 
-	SDL_LockSurface(surface);
+MandelRenderer::MandelRenderer()
+{
+	minVal = { -2.0, -1.5 };
+	factorVal = { 3.0 / (SCREEN_WIDTH - 1), 3.0 / (SCREEN_HEIGHT - 1) };
+	centerOff = 0.5;
+	zoom = 1;
+	offset = { 0,0 };
+}
 
-	Uint32 *pixels = (Uint32 *)surface->pixels;
+void MandelRenderer::update(double _zoom, complex _offset)
+{
+	zoom = _zoom;
+	offset = _offset;
+}
 
-	for (int y = tile.y; y < tile.y + tile.h; ++y)
+void JuliaRenderer::update(double _zoom, complex _offset, complex _K)
+{
+	zoom = _zoom;
+	offset = _offset;
+	K = _K;
+}
+
+void FractalRenderer::render(unsigned iTile, unsigned maxIterations)
+{
+	SDL_Rect tile = tiles[iTile];
+	SDL_Surface *surf = surfaces[iTile];
+
+	SDL_LockSurface(surf);
+
+	Uint32 *pixels = (Uint32 *)surf->pixels;
+
+	for (int y = tiles[iTile].y; y < tile.y + tile.h; ++y)
 	{
 		for (int x = tile.x; x < tile.x + tile.w; ++x)
 		{
 			int locX = x - tile.x;
 			int locY = y - tile.y;
 
-			if (pixels[(locY * surface->w) + locX] & 0x00FFFFFF) continue; //if the pixel is already colored
+			if (pixels[(locY * surf->w) + locX] & 0x00FFFFFF) continue; //if the pixel is already colored
 
-			int iterations = math(x,y);
+			int iterations = math(x, y, maxIterations);
 
 			if (iterations >= 0)
 			{
 				int hue = (iterations * 12) % (256 * 6);
 
 				//Set the pixel
-				pixels[(locY * surface->w) + locX] = color_table[hue];
+				pixels[(locY * surf->w) + locX] = color_table[hue];
 			}
 		}
 	}
-	SDL_UnlockSurface(surface);
+	SDL_UnlockSurface(surf);
 }
 
-int MandelRenderer::math(int x, int y)
+int MandelRenderer::math(int x, int y, unsigned maxIterations)
 {
 	complex c;
 	c.im = (minVal.im + y * factorVal.im) * zoom + offset.im;
@@ -84,7 +119,7 @@ int MandelRenderer::math(int x, int y)
 	unsigned iterations;
 
 	//escape time algorithm
-	for (iterations = MinIterations; iterations < MaxIterations; ++iterations)
+	for (iterations = 0; iterations < maxIterations; ++iterations)
 	{
 		complex Z_2;
 		Z_2.re = Z.re*Z.re, Z_2.im = Z.im*Z.im;
@@ -100,14 +135,14 @@ int MandelRenderer::math(int x, int y)
 	return -1;
 }
 
-int JuliaRenderer::math(int x, int y)
-{
+int JuliaRenderer::math(int x, int y, unsigned maxIterations)
+{ 
 	complex Z;
 	Z.re = (minVal.re + x * factorVal.re) * zoom + offset.re;
 	Z.im = (minVal.im + y * factorVal.im) * zoom + offset.im;
 	unsigned iterations;
 
-	for (iterations = MinIterations; iterations < MaxIterations; ++iterations)
+	for (iterations = 0; iterations < maxIterations; ++iterations)
 	{
 		complex Z_2;
 		Z_2.re = Z.re*Z.re, Z_2.im = Z.im*Z.im;
