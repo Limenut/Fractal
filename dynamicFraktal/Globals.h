@@ -12,11 +12,11 @@ TTF_Font *gFont = NULL;
 
 const Uint8* state = SDL_GetKeyboardState(NULL);
 
-const int SCREEN_WIDTH = 1000;
-const int SCREEN_HEIGHT = 1000;
+const int SCREEN_WIDTH = 1024;
+const int SCREEN_HEIGHT = 1024;
 
-const unsigned THREAD_COUNT = 8;
-const int TILE_SIZE = 512;
+const unsigned THREAD_COUNT = 2*std::thread::hardware_concurrency();
+const int TILE_SIZE = 256;
 
 std::vector<SDL_Rect>tiles;
 std::vector<SDL_Surface*>surfaces;

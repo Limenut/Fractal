@@ -269,7 +269,7 @@ int main()
 	initTiles();
 
 	//init threads
-	for (int i = 0; i < THREAD_COUNT; i++)
+	for (unsigned i = 0; i < THREAD_COUNT; i++)
 	{
 		threads.push_back(std::thread());
 	}
@@ -319,7 +319,10 @@ int main()
 			update = false;
 		}
 
-		
+		//must use std::ref!
+		//std::thread handler(handleEvents, &offset, &zoom, &MaxIterations, &K, &update, &quit);
+		//handler.join();
+		handleEvents(&offset, &zoom, &MaxIterations, &K, &update, &quit);
 
 		//start fractal drawing threads
 		unsigned iTile = 0;
@@ -328,11 +331,9 @@ int main()
 			if (iTile >= tiles.size()) break;
 			//t = std::thread(renderFractalPart, MinIterations, MaxIterations, zoom, offset, K, iTile);
 			//t = std::thread(&FractalRenderer::render, &Julia, iTile, MaxIterations);
-			t = std::thread(&FractalRenderer::render, &Mandel, iTile, MaxIterations);
+			t = std::thread(&FractalRenderer::render, &Mandel, iTile, MaxIterations); //&Mandel ensures the object is not copied
 			iTile++;
 		}
-
-		handleEvents(&offset, &zoom, &MaxIterations, &K, &update, &quit);
 
 		//join threads
 		for (auto &t : threads)
