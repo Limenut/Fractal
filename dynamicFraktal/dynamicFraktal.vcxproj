@@ -144,12 +144,14 @@
   <ItemGroup>
     <ClCompile Include="Source.cpp" />
     <ClCompile Include="textOverlay.cpp" />
+    <ClCompile Include="ThreadPool.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Complex.h" />
     <ClInclude Include="Fractal.h" />
     <ClInclude Include="Globals.h" />
     <ClInclude Include="textOverlay.h" />
+    <ClInclude Include="ThreadPool.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

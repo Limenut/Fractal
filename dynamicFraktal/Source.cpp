@@ -2,10 +2,12 @@
 #include <thread>
 #include <mutex>
 #include <iostream>
+#include <functional>
 #include "Globals.h"
 #include "Complex.h"
 #include "textOverlay.h"
 #include "Fractal.h"
+#include "ThreadPool.h"
 
 #pragma comment (lib, "SDL2.lib")
 #pragma comment (lib, "SDL2_ttf.lib")
@@ -295,6 +297,8 @@ int main()
 	gFont = TTF_OpenFont("DigitalDream.ttf", 14);
 	text.initText(gRenderer, gFont);
 
+	ThreadPool pool(THREAD_COUNT);
+
 	//Main loop flags
 	bool quit = false;
 	bool update = true;
@@ -319,29 +323,13 @@ int main()
 			update = false;
 		}
 
-		//must use std::ref!
-		//std::thread handler(handleEvents, &offset, &zoom, &MaxIterations, &K, &update, &quit);
-		//handler.join();
 		handleEvents(&offset, &zoom, &MaxIterations, &K, &update, &quit);
-
-		//start fractal drawing threads
-		unsigned iTile = 0;
-		for (auto &t : threads)
+		
+		//queue tasks
+		for (unsigned i = 0; i < tiles.size(); i++)
 		{
-			if (iTile >= tiles.size()) break;
-			//t = std::thread(renderFractalPart, MinIterations, MaxIterations, zoom, offset, K, iTile);
-			//t = std::thread(&FractalRenderer::render, &Julia, iTile, MaxIterations);
-			t = std::thread(&FractalRenderer::render, &Mandel, iTile, MaxIterations); //&Mandel ensures the object is not copied
-			iTile++;
-		}
-
-		//join threads
-		for (auto &t : threads)
-		{
-			if (t.joinable())
-			{
-				t.join();
-			}
+			std::function<void()> f = std::bind(&FractalRenderer::render, &Mandel, i, MaxIterations);
+			pool.Enqueue(f);
 		}
 
 		//combine surfaces to one
