@@ -20,6 +20,5 @@ const int TILE_SIZE = 256;
 
 std::vector<SDL_Rect>tiles;
 std::vector<SDL_Surface*>surfaces;
-std::vector<std::thread>threads;
 
 Uint32 color_table[256 * 6];

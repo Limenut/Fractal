@@ -14,13 +14,6 @@
 
 #undef main
 
-
-
-const complex MandelMin = {-2.0, -1.5};
-const complex JuliaMin = { -1.5, -1.5 };
-const complex PixelFactor = { 3.0 / (SCREEN_WIDTH - 1), 3.0 / (SCREEN_HEIGHT - 1) };
-const double centerOFF = 0.5; //distance from origin to center of screen
-
 bool init()
 {
 	//Initialization flag
@@ -165,102 +158,6 @@ void handleEvents(complex *offset, double *zoom, unsigned *MaxIterations, comple
 	else if (state[SDL_SCANCODE_KP_3]) { K->im -= 0.01;  *update = true; }
 }
 
-//following functions not in use right now
-int MandelMath(int x, int y, unsigned MinIterations, unsigned MaxIterations, double zoom, complex offset)
-{
-	complex c;
-	c.im = (MandelMin.im + y * PixelFactor.im) * zoom + offset.im;
-	c.re = (MandelMin.re + centerOFF + x * PixelFactor.re) * zoom + offset.re - centerOFF;
-
-	//cardioid-check
-	double cardioid = (c.re - 0.25)*(c.re - 0.25) + c.im*c.im;
-	if (cardioid*(cardioid + (c.re - 0.25)) < 0.25*c.im*c.im)
-		return -1;
-
-	//first sphere-check
-	if ((c.re + 1.0)*(c.re + 1.0) + c.im*c.im < (1.0 / 16.0))
-		return -1;
-
-	complex Z;
-	Z.re = c.re, Z.im = c.im;
-	unsigned iterations;
-
-	//escape time algorithm
-	for (iterations = MinIterations; iterations < MaxIterations; ++iterations)
-	{
-		complex Z_2;
-		Z_2.re = Z.re*Z.re, Z_2.im = Z.im*Z.im;
-
-		if (Z_2.re + Z_2.im > 4)
-		{
-			return iterations;
-		}
-
-		Z.im = 2 * Z.re*Z.im + c.im;
-		Z.re = Z_2.re - Z_2.im + c.re;
-	}
-	return -1;
-}
-
-int JuliaMath(int x, int y, unsigned MinIterations, unsigned MaxIterations, double zoom, complex offset, complex K)
-{
-	complex Z;
-	Z.re = (JuliaMin.re + x * PixelFactor.re) * zoom + offset.re;
-	Z.im = (JuliaMin.im + y * PixelFactor.im) * zoom + offset.im;
-	unsigned iterations;
-
-	for (iterations = MinIterations; iterations < MaxIterations; ++iterations)
-	{
-		complex Z_2;
-		Z_2.re = Z.re*Z.re, Z_2.im = Z.im*Z.im;
-
-
-		if (Z_2.re + Z_2.im > 4)
-		{
-			return iterations;
-		}
-		Z.im = 2 * Z.re*Z.im + K.im;
-		Z.re = Z_2.re - Z_2.im + K.re;
-	}
-	return -1;
-}
-
-void renderFractalPart(unsigned MinIterations, unsigned MaxIterations, double zoom, complex offset, complex K, unsigned iTile)
-{
-	SDL_Rect tile = tiles[iTile];
-	SDL_Surface *surf = surfaces[iTile];
-
-	SDL_LockSurface(surf);
-
-	Uint32 *pixels = (Uint32 *)surf->pixels;
-
-	for (int y = tile.y; y < tile.y + tile.h; ++y)
-	{
-		for (int x = tile.x; x < tile.x + tile.w; ++x)
-		{
-			int locX = x - tile.x;
-			int locY = y - tile.y;
-
-			if (pixels[(locY * surf->w) + locX] & 0x00FFFFFF) continue; //if the pixel is already colored
-			
-			int iterations = MandelMath(x, y, MinIterations, MaxIterations, zoom, offset);
-
-			if (iterations >= 0)
-			{
-				int hue = (iterations * 12) % (256 * 6);
-
-				//SDL_Color color = color_table[hue];
-
-				//Set the pixel
-				pixels[(locY * surf->w) + locX] = color_table[hue];
-				//pixels[(locY * surf->w) + locX] = SDL_MapRGB(&windowFormat, color.r, color.g, color.b);
-			}
-		}
-	}
-	SDL_UnlockSurface(surf);
-}
-
-
 int main()
 {
 	//Start up SDL and create window
@@ -269,12 +166,6 @@ int main()
 
 	initColorTable(color_table);
 	initTiles();
-
-	//init threads
-	for (unsigned i = 0; i < THREAD_COUNT; i++)
-	{
-		threads.push_back(std::thread());
-	}
 
 	complex K;
 	K.re = -0.7;
