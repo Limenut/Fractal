@@ -23,4 +23,3 @@ std::vector<SDL_Surface*>surfaces;
 std::vector<std::thread>threads;
 
 Uint32 color_table[256 * 6];
-//std::vector<Uint32>color_table;

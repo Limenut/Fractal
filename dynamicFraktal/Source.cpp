@@ -283,9 +283,10 @@ int main()
 	offset.re = 0;
 	offset.im = 0;
 
-	unsigned interval = 50;
-	unsigned MinIterations = 0;
-	unsigned MaxIterations = MinIterations + interval;
+	unsigned interval = 100;
+	unsigned StartIterations = 100;
+	//unsigned MinIterations = 0;
+	unsigned MaxIterations = StartIterations;
 	double zoom = 1;
 
 	MandelRenderer Mandel;
@@ -296,8 +297,6 @@ int main()
 	textOverlay text;
 	gFont = TTF_OpenFont("DigitalDream.ttf", 14);
 	text.initText(gRenderer, gFont);
-
-	ThreadPool pool(THREAD_COUNT);
 
 	//Main loop flags
 	bool quit = false;
@@ -315,7 +314,7 @@ int main()
 			
 			//start drawing from beginning
 			//MinIterations = 0;
-			MaxIterations = MinIterations + interval;
+			MaxIterations = StartIterations;
 
 			Mandel.update(zoom, offset);
 			//Julia.update(zoom, offset, K);
@@ -323,14 +322,17 @@ int main()
 			update = false;
 		}
 
-		handleEvents(&offset, &zoom, &MaxIterations, &K, &update, &quit);
-		
+		handleEvents(&offset, &zoom, &StartIterations, &K, &update, &quit);
+
+
 		//queue tasks
+		ThreadPool pool(THREAD_COUNT);
 		for (unsigned i = 0; i < tiles.size(); i++)
 		{
 			std::function<void()> f = std::bind(&FractalRenderer::render, &Mandel, i, MaxIterations);
 			pool.Enqueue(f);
 		}
+		pool.ShutDown();
 
 		//combine surfaces to one
 		SDL_Surface *screen = SDL_GetWindowSurface(gWindow);
